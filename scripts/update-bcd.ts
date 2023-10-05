@@ -10,6 +10,7 @@ import {
   Browsers,
   SimpleSupportStatement,
   Identifier,
+  BrowserName,
 } from "@mdn/browser-compat-data/types";
 import {
   Report,
@@ -296,10 +297,18 @@ export const inferSupportStatements = (
   return statements;
 };
 
+interface UpdateFilter {
+  path: string | Minimatch | null;
+  browser: BrowserName[];
+  release: string | false | null;
+  exactOnly: boolean;
+  addNewFeatures: boolean;
+}
+
 export const update = (
   bcd: Identifier,
   supportMatrix: SupportMatrix,
-  filter: any,
+  filter: UpdateFilter,
 ): boolean => {
   let modified = false;
 
@@ -610,23 +619,46 @@ export const loadJsonFiles = async (
   return Object.fromEntries(entries);
 };
 
+interface MainFilter {
+  path?: string | null;
+  browser?: BrowserName[];
+  release?: string | null;
+  exactOnly?: boolean;
+  addNewFeatures?: boolean;
+}
+
+const castUpdateFilter = ({
+  path: _path,
+  browser: _browser,
+  release: _release,
+  exactOnly: _exactOnly,
+  addNewFeatures: _addNewFeatures,
+}: MainFilter): UpdateFilter => {
+  // Replace path with a minimatch object.
+  const path = (_path && _path.includes('*') ? new Minimatch(_path) : _path) ?? null;
+  const browser = _browser ?? [];
+  const release = (_release === 'false' ? false : _release) ?? null;
+  const exactOnly = _exactOnly ?? false;
+  const addNewFeatures = _addNewFeatures ?? false;
+  return {
+    path,
+    browser,
+    release,
+    exactOnly,
+    addNewFeatures,
+  };
+};
+
 export const main = async (
   reportPaths: string[],
-  filter: any,
+  filter: MainFilter,
   browsers: Browsers,
   overrides: Overrides,
 ): Promise<void> => {
-  // Replace filter.path with a minimatch object.
-  if (filter.path && filter.path.includes("*")) {
-    filter.path = new Minimatch(filter.path);
-  }
-
-  if (filter.release === "false") {
-    filter.release = false;
-  }
+  const _filter = castUpdateFilter(filter);
 
   const bcdFiles = (await loadJsonFiles(
-    filter.addNewFeatures
+    _filter.addNewFeatures
       ? [path.join(BCD_DIR, "__missing")]
       : [
           "api",
@@ -652,7 +684,7 @@ export const main = async (
   // Should match https://github.com/mdn/browser-compat-data/blob/f10bf2cc7d1b001a390e70b7854cab9435ffb443/test/linter/test-style.js#L63
   // TODO: https://github.com/mdn/browser-compat-data/issues/3617
   for (const [file, data] of Object.entries(bcdFiles)) {
-    const modified = update(data, supportMatrix, filter);
+    const modified = update(data, supportMatrix, _filter);
     if (!modified) {
       continue;
     }
