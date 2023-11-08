@@ -401,7 +401,8 @@ export const update = (
       }
 
       // Update the support data with a new value.
-      const persist = (statements: SimpleSupportStatement[]) => {
+      const persist = (why: string, statements: SimpleSupportStatement[]) => {
+        logger.info(`${path}, ${browser}, ${why}`);
         // Check for ranges and ignore them if we specify `exact-only` argument
         if (filter.exactOnly) {
           for (const statement of statements) {
@@ -463,7 +464,7 @@ export const update = (
         const nonFlagStatements = allStatements.filter(
           (statement) => !("flags" in statement),
         );
-        persist([inferredStatement, ...nonFlagStatements]);
+        persist('noDefaultInferred', [inferredStatement, ...nonFlagStatements]);
 
         continue;
       }
@@ -538,7 +539,7 @@ export const update = (
           compareVersions(simpleAdded, upper, ">")
         ) {
           simpleStatement.version_added = inferredStatement.version_added;
-          persist(allStatements);
+          persist('replacePreviewOrOutOfDate', allStatements);
         }
       } else if (
         !(
@@ -554,19 +555,19 @@ export const update = (
           !inferredStatement.version_added &&
           simpleStatement.partial_implementation
         ) {
-          persist([{version_added: false}]);
+          persist('replacePartial', [{version_added: false}]);
 
           // Positive test results do not conclusively indicate that a partial
           // implementation has been completed.
         } else if (!simpleStatement.partial_implementation) {
           simpleStatement.version_added = inferredStatement.version_added;
-          persist(allStatements);
+          persist('inferred', allStatements);
         }
       }
 
       if (typeof inferredStatement.version_removed === "string") {
         simpleStatement.version_removed = inferredStatement.version_removed;
-        persist(allStatements);
+        persist('removed', allStatements);
       }
     }
   }
