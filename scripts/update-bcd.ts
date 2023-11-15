@@ -304,7 +304,7 @@ export const inferSupportStatements = (
 };
 
 /** Values that can be logged for further analysis. */
-interface UpdateLog {
+export interface UpdateLog {
   allStatements: SimpleSupportStatement[];
   browser: BrowserName;
   defaultStatements: SimpleSupportStatement[];
@@ -315,19 +315,19 @@ interface UpdateLog {
 }
 
 /** Values available in operations. */
-interface UpdateState extends UpdateLog {
+export interface UpdateState extends UpdateLog {
   shared: UpdateShared;
 }
 
 /** Internal values restricted to expand() and update(). */
-interface UpdateInternal extends UpdateState {
+export interface UpdateInternal extends UpdateState {
   debug: UpdateDebug;
 }
 
 type CompatSupport = Exclude<Identifier["__compat"], undefined>["support"];
 
 /** Values shared by multiple updates or too large to log. */
-interface UpdateShared {
+export interface UpdateShared {
   bcd: Identifier;
   browserMap: SupportMap;
   unmodifiedSupport: CompatSupport;
@@ -336,11 +336,11 @@ interface UpdateShared {
   versionMap: BrowserSupportMap;
 }
 
-interface UpdateDebug {
+export interface UpdateDebug {
   stack: {step: string; result: UpdateYield}[];
 }
 
-type UpdateYield = Partial<UpdateLog> & {
+export type UpdateYield = Partial<UpdateLog> & {
   shared?: Partial<UpdateShared>;
 };
 
@@ -359,7 +359,7 @@ interface ReasonFactory {
   (value: UpdateState): Reason;
 }
 
-const reason = (
+export const reason = (
   message: ReasonMessageFactory,
   args: Omit<Reason, "message"> = {},
 ): ReasonFactory => {
@@ -382,7 +382,9 @@ const handleReasonable = (
   return factory;
 };
 
-const compose = (...funcs: any[]) =>
+export const compose = <T>(
+  ...funcs: ((last: () => Generator<T>) => () => Generator<T>)[]
+) =>
   funcs.reduce(
     (last, next, index, array) => {
       if (!last) {
@@ -393,11 +395,11 @@ const compose = (...funcs: any[]) =>
       return next(last);
     },
     function* () {
-      yield {};
-    },
-  ) as () => Generator<UpdateInternal>;
+      yield {} as T;
+    } as () => Generator<T>,
+  ) as () => Generator<T>;
 
-const expand = (
+export const expand = (
   step: string,
   generator: (value: UpdateState) => Generator<UpdateYield | void>,
 ) => {
@@ -434,24 +436,27 @@ const expand = (
     };
 };
 
-const map = (step: string, op: (value: UpdateState) => UpdateYield | void) =>
+export const map = (
+  step: string,
+  op: (value: UpdateState) => UpdateYield | void,
+) =>
   expand(step, function* (value: UpdateState): Generator<UpdateYield | void> {
     yield op(value);
   });
 
-const passthrough = map("passthrough", () => {});
+export const passthrough = map("passthrough", () => {});
 
-const provide = <S extends keyof UpdateState>(
+export const provide = <S extends keyof UpdateState>(
   key: S,
   op: (value: UpdateState) => UpdateState[S],
 ) => map(`provide_${key}`, (value) => ({[key]: op(value)}));
 
-const provideShared = <S extends keyof UpdateShared>(
+export const provideShared = <S extends keyof UpdateShared>(
   key: S,
   op: (value: UpdateState) => UpdateShared[S],
 ) => map(`provide_shared_${key}`, (value) => ({shared: {[key]: op(value)}}));
 
-const provideStatements = (
+export const provideStatements = (
   step: string,
   op: (
     value: UpdateState,
@@ -473,7 +478,7 @@ const provideStatements = (
     }
   });
 
-const provideReason = (
+export const provideReason = (
   step: string,
   op: (value: UpdateState) => string | Reason | ReasonFactory | void,
 ) =>
@@ -486,7 +491,7 @@ const provideReason = (
     }
   });
 
-const skip = (
+export const skip = (
   step: string,
   condition: (value: UpdateState) => string | Reason | ReasonFactory | void,
 ) => provideReason(`skip_${step}`, condition);

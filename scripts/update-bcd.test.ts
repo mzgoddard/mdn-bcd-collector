@@ -16,10 +16,20 @@ import {Browsers} from "@mdn/browser-compat-data/types";
 
 import logger from "../lib/logger.js";
 import {
+  UpdateInternal,
+  compose,
+  expand,
   findEntry,
   getSupportMap,
   getSupportMatrix,
   inferSupportStatements,
+  map,
+  passthrough,
+  provide,
+  provideShared,
+  provideStatements,
+  reason,
+  skip,
   splitRange,
   update,
 } from "./update-bcd.js";
@@ -818,6 +828,426 @@ describe("BCD updater", () => {
       assert.throws(() => {
         splitRange("23");
       }, 'Unrecognized version range value: "23"');
+    });
+  });
+
+  describe("compose", () => {
+    it("calls all functions", () => {
+      assert.deepEqual(
+        Array.from(
+          compose<{a?: number; b?: number}>(
+            (last) =>
+              function* () {
+                for (const item of last()) {
+                  for (let a = 0; a < 2; a++) {
+                    yield {...item, a};
+                  }
+                }
+              },
+            (last) =>
+              function* () {
+                for (const item of last()) {
+                  for (let b = 0; b < 2; b++) {
+                    yield {...item, b};
+                  }
+                }
+              },
+          )(),
+        ),
+        [
+          {a: 0, b: 0},
+          {a: 0, b: 1},
+          {a: 1, b: 0},
+          {a: 1, b: 1},
+        ],
+      );
+    });
+  });
+
+  describe("expand", () => {
+    it("merges values", () => {
+      assert.deepEqual(
+        Array.from(
+          expand("path", function* ({browser}) {
+            yield {path: `${browser}.api`};
+            yield {path: `${browser}.js`};
+          })(function* () {
+            yield {browser: "chrome"} as UpdateInternal;
+            yield {browser: "edge"} as UpdateInternal;
+          })(),
+        ),
+        [
+          {
+            browser: "chrome",
+            debug: {stack: [{result: {path: "chrome.api"}, step: "path"}]},
+            path: "chrome.api",
+            shared: {},
+          },
+          {
+            browser: "chrome",
+            debug: {stack: [{result: {path: "chrome.js"}, step: "path"}]},
+            path: "chrome.js",
+            shared: {},
+          },
+          {
+            browser: "edge",
+            debug: {stack: [{result: {path: "edge.api"}, step: "path"}]},
+            path: "edge.api",
+            shared: {},
+          },
+          {
+            browser: "edge",
+            debug: {stack: [{result: {path: "edge.js"}, step: "path"}]},
+            path: "edge.js",
+            shared: {},
+          },
+        ] as UpdateInternal[],
+      );
+    });
+
+    it("yields original value in place of undefined", () => {
+      assert.deepEqual(
+        Array.from(
+          expand("undefined", function* () {
+            yield;
+            yield;
+          })(function* () {
+            yield {browser: "chrome"} as UpdateInternal;
+            yield {browser: "edge"} as UpdateInternal;
+          })(),
+        ),
+        [
+          {browser: "chrome"},
+          {browser: "chrome"},
+          {browser: "edge"},
+          {browser: "edge"},
+        ] as UpdateInternal[],
+      );
+    });
+
+    it("yields skipped reasons immediately", () => {
+      assert.deepEqual(
+        Array.from(
+          expand("path", function* () {
+            yield {path: "api"};
+            yield {path: "js"};
+          })(function* () {
+            yield {reason: {skip: true}} as UpdateInternal;
+            yield {reason: {skip: true}} as UpdateInternal;
+          })(),
+        ),
+        [{reason: {skip: true}}, {reason: {skip: true}}] as UpdateInternal[],
+      );
+    });
+
+    describe("map", () => {
+      it("merges values", () => {
+        assert.deepEqual(
+          Array.from(
+            map("path", ({browser}) => {
+              return {path: `${browser}.api`};
+            })(function* () {
+              yield {browser: "chrome"} as UpdateInternal;
+              yield {browser: "edge"} as UpdateInternal;
+            })(),
+          ),
+          [
+            {browser: "chrome", debug: {stack: [{result: {path: "chrome.api"}, step: 'path'}]}, path: "chrome.api", 
+            shared: {},},
+            {browser: "edge", debug: {stack: [{result: {path: "edge.api"}, step: 'path'}]}, path: "edge.api",             shared: {},},
+          ] as UpdateInternal[],
+        );
+      });
+    });
+
+    describe("passthrough", () => {
+      it("yields all values", () => {
+        assert.deepEqual(
+          Array.from(
+            passthrough(function* () {
+              yield {browser: "chrome"} as UpdateInternal;
+              yield {browser: "edge"} as UpdateInternal;
+            })(),
+          ),
+          [{browser: "chrome"}, {browser: "edge"}] as UpdateInternal[],
+        );
+      });
+    });
+
+    describe("provide", () => {
+      it("sets named key", () => {
+        assert.deepEqual(
+          Array.from(
+            provide("path", ({browser}) => {
+              return `${browser}.api`;
+            })(function* () {
+              yield {browser: "chrome"} as UpdateInternal;
+              yield {browser: "edge"} as UpdateInternal;
+            })(),
+          ),
+          [
+            {browser: "chrome", debug: {stack: [{result: {path: "chrome.api"}, step: 'provide_path'}]}, path: "chrome.api", 
+            shared: {},},
+            {browser: "edge", debug: {stack: [{result: {path: "edge.api"}, step: 'provide_path'}]}, path: "edge.api", 
+            shared: {},},
+          ] as UpdateInternal[],
+        );
+      });
+    });
+
+    describe("provideShared", () => {
+      it("sets named key in shared", () => {
+        assert.deepEqual(
+          Array.from(
+            provideShared("browserMap", ({browser}) => {
+              return new Map([[browser, new Map()]]);
+            })(function* () {
+              yield {browser: "chrome"} as UpdateInternal;
+              yield {browser: "edge"} as UpdateInternal;
+            })(),
+          ),
+          [
+            {
+              browser: "chrome",
+              debug: {
+                stack: [
+                  {
+                    result: {},
+                    step: "provide_shared_browserMap",
+                  },
+                ],
+              },
+              shared: {browserMap: new Map([["chrome", new Map()]])},
+            },
+            {
+              browser: "edge",
+              debug: {
+                stack: [
+                  {
+                    result: {},
+                    step: "provide_shared_browserMap",
+                  },
+                ],
+              },
+              shared: {browserMap: new Map([["edge", new Map()]])},
+            },
+          ] as UpdateInternal[],
+        );
+      });
+    });
+
+    describe("provideStatements", () => {
+      it("sets statements and reason", () => {
+        assert.deepEqual(
+          Array.from(
+            provideStatements("pathReason", ({browser}) => {
+              return [
+                [{version_added: browser === "chrome" ? "10" : "20"}],
+                reason(({path}) => path, {skip: false}),
+              ];
+            })(function* () {
+              yield {browser: "chrome", path: "api"} as UpdateInternal;
+              yield {browser: "edge", path: "api"} as UpdateInternal;
+            })(),
+          ),
+          [
+            {
+              browser: "chrome",
+              debug: {
+                stack: [
+                  {
+                    result: {
+                      reason: {
+                        message: "api",
+                        skip: false,
+                        step: "provide_statements_pathReason",
+                      },
+                      statements: [{version_added: "10"}],
+                    },
+                    step: "provide_statements_pathReason",
+                  },
+                ],
+              },
+              path: "api",
+              reason: {
+                message: "api",
+                skip: false,
+                step: "provide_statements_pathReason",
+              },
+              shared: {},
+              statements: [{version_added: "10"}],
+            },
+            {
+              browser: "edge",
+              debug: {
+                stack: [
+                  {
+                    result: {
+                      reason: {
+                        message: "api",
+                        skip: false,
+                        step: "provide_statements_pathReason",
+                      },
+                      statements: [{version_added: "20"}],
+                    },
+                    step: "provide_statements_pathReason",
+                  },
+                ],
+              },
+              path: "api",
+              reason: {
+                message: "api",
+                skip: false,
+                step: "provide_statements_pathReason",
+              },
+              shared: {},
+              statements: [{version_added: "20"}],
+            },
+          ] as UpdateInternal[],
+        );
+      });
+
+      it("can unset statements with undefined", () => {
+        assert.deepEqual(
+          Array.from(
+            provideStatements("clear", () => {
+              return [undefined, reason(({path}) => `clear ${path}`)];
+            })(function* () {
+              yield {
+                browser: "chrome",
+                path: "api",
+                statements: [{version_added: "10"}],
+              } as UpdateInternal;
+              yield {
+                browser: "edge",
+                path: "api",
+                statements: [{version_added: "20"}],
+              } as UpdateInternal;
+            })(),
+          ),
+          [
+            {
+              browser: "chrome",
+              debug: {
+                stack: [
+                  {
+                    result: {
+                      reason: {
+                        message: "clear api",
+                        skip: true,
+                        step: "provide_statements_clear",
+                      },
+                      statements: undefined as any,
+                    },
+                    step: "provide_statements_clear",
+                  },
+                ],
+              },
+              path: "api",
+              reason: {
+                message: "clear api",
+                skip: true,
+                step: "provide_statements_clear",
+              },
+              shared: {},
+              statements: undefined as any,
+            },
+            {
+              browser: "edge",
+              debug: {
+                stack: [
+                  {
+                    result: {
+                      reason: {
+                        message: "clear api",
+                        skip: true,
+                        step: "provide_statements_clear",
+                      },
+                      statements: undefined as any,
+                    },
+                    step: "provide_statements_clear",
+                  },
+                ],
+              },
+              path: "api",
+              reason: {
+                message: "clear api",
+                skip: true,
+                step: "provide_statements_clear",
+              },
+              shared: {},
+              statements: undefined as any,
+            },
+          ] as UpdateInternal[],
+        );
+      });
+    });
+
+    describe("skip", () => {
+      it("sets reason", () => {
+        assert.deepEqual(
+          Array.from(
+            skip("always", () => {
+              return reason(
+                ({browser, path}) => `${path} skipped for ${browser}`,
+              );
+            })(function* () {
+              yield {browser: "chrome", path: "api"} as UpdateInternal;
+              yield {browser: "edge", path: "api"} as UpdateInternal;
+            })(),
+          ),
+          [
+            {
+              browser: "chrome",
+              debug: {
+                stack: [
+                  {
+                    result: {
+                      reason: {
+                        message: "api skipped for chrome",
+                        skip: true,
+                        step: "reason_skip_always",
+                      },
+                    },
+                    step: "reason_skip_always",
+                  },
+                ],
+              },
+              path: "api",
+              reason: {
+                message: "api skipped for chrome",
+                skip: true,
+                step: "reason_skip_always",
+              },
+              shared: {},
+            },
+            {
+              browser: "edge",
+              debug: {
+                stack: [
+                  {
+                    result: {
+                      reason: {
+                        message: "api skipped for edge",
+                        skip: true,
+                        step: "reason_skip_always",
+                      },
+                    },
+                    step: "reason_skip_always",
+                  },
+                ],
+              },
+              path: "api",
+              reason: {
+                message: "api skipped for edge",
+                skip: true,
+                step: "reason_skip_always",
+              },
+              shared: {},
+            },
+          ] as UpdateInternal[],
+        );
+      });
     });
   });
 
